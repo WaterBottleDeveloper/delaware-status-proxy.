@@ -1,4 +1,4 @@
-// server.js (Node.js Proxy Code - Optimized 3-Source Failover System with Monitoring)
+// server.js (Node.js Proxy Code - 9-Source Failover System with Monitoring)
 const express = require('express');
 const axios = require('axios');
 const cheerio = require('cheerio');
@@ -10,7 +10,7 @@ const DISTRICT_NAME_CLEAN = 'Delaware City';
 
 // --- GLOBAL MONITORING STATE ---
 let monitoringData = {
-    totalSources: 3, 
+    totalSources: 9, // Updated to 9
     lastScrapeTime: 'Server started, no scrape yet.',
     lastStatus: 'INITIALIZING',
     lastSourceUsed: 'N/A',
@@ -19,17 +19,15 @@ let monitoringData = {
     firstFailureMessage: 'N/A'
 };
 
-// Define 3 highly stable scrapers in order of priority
+// Define 9 Scrapers in order of priority (Source 2 removed)
 const SCRAPERS = [
     {
         name: 'Official District Homepage (Priority 1)',
         url: 'https://www.dcs.k12.oh.us/',
-        // Targets specific alert banner CSS class or common keywords in banners
+        // Targets specific alert banner CSS class or common keywords
         scrape: async (url) => {
             const response = await axios.get(url, { timeout: 8000 }); 
             const $ = cheerio.load(response.data);
-            
-            // Check common alert CSS classes
             const alertText = $('.alert, .notification, .banner, .announcement').text().toUpperCase();
             
             if (alertText.includes('CLOSED') || alertText.includes('CLOSURE')) return 'CLOSED';
@@ -38,22 +36,12 @@ const SCRAPERS = [
             return 'OPEN';
         }
     },
+    // --- Source 2 (Official Delays/Closings Page) REMOVED ---
+    
     {
-        name: 'Official Delays/Closings Page (Priority 2)',
-        url: 'https://www.dcs.k12.oh.us/for-families/school-hours-delay-schedule/school-delay-closings',
-        // Targets specific delay page text
-        scrape: async (url) => {
-            const response = await axios.get(url, { timeout: 8000 });
-            const normalizedText = cheerio.load(response.data)('body').text().toUpperCase();
-            if (normalizedText.includes('CLOSED') || normalizedText.includes('CLOSURE')) return 'CLOSED';
-            if (normalizedText.includes('DELAY') || normalizedText.includes('TWO-HOUR') || normalizedText.includes('2-HOUR')) return 'DELAYED';
-            return 'OPEN';
-        }
-    },
-    {
-        name: 'WTVN Radio Closings (Priority 3 Backup)',
+        name: 'WTVN Radio Closings (Priority 2)', // Shifted up
         url: 'https://610wtvn.iheart.com/featured/central-ohio-school-and-business-closings-and-delays/',
-        // Targets simple text list structure, searches for keywords near the district name
+        // Targets simple text list structure
         scrape: async (url) => {
             const response = await axios.get(url, { timeout: 8000 });
             const normalizedText = cheerio.load(response.data)('body').text().toUpperCase();
@@ -63,7 +51,80 @@ const SCRAPERS = [
             if (searchDistrict && (normalizedText.includes('DELAY') || normalizedText.includes('DELAYED'))) return 'DELAYED';
             return 'OPEN';
         }
-    }
+    },
+    {
+        name: 'WBNS-TV / 10TV (Priority 3)',
+        url: 'https://www.10tv.com/closings',
+        scrape: async (url) => {
+            const response = await axios.get(url, { timeout: 8000, headers: { 'User-Agent': 'Mozilla/5.0' } });
+            const normalizedText = cheerio.load(response.data)('body').text().toUpperCase();
+            if (normalizedText.includes(DISTRICT_NAME_CLEAN.toUpperCase()) && normalizedText.includes('CLOSED')) return 'CLOSED';
+            if (normalizedText.includes(DISTRICT_NAME_CLEAN.toUpperCase()) && normalizedText.includes('DELAY')) return 'DELAYED';
+            return 'OPEN';
+        }
+    },
+    {
+        name: 'WCMH NBC 4 (Priority 4)',
+        url: 'https://www.nbc4i.com/weather/closings/',
+        scrape: async (url) => {
+            const response = await axios.get(url, { timeout: 8000, headers: { 'User-Agent': 'Mozilla/5.0' } });
+            const normalizedText = cheerio.load(response.data)('body').text().toUpperCase();
+            if (normalizedText.includes(DISTRICT_NAME_CLEAN.toUpperCase()) && normalizedText.includes('CLOSED')) return 'CLOSED';
+            if (normalizedText.includes(DISTRICT_NAME_CLEAN.toUpperCase()) && normalizedText.includes('DELAY')) return 'DELAYED';
+            return 'OPEN';
+        }
+    },
+    {
+        name: 'WSYX ABC 6 (Priority 5)',
+        url: 'https://abc6onyourside.com/weather/closings',
+        scrape: async (url) => {
+            const response = await axios.get(url, { timeout: 8000, headers: { 'User-Agent': 'Mozilla/5.0' } });
+            const normalizedText = cheerio.load(response.data)('body').text().toUpperCase();
+            if (normalizedText.includes(DISTRICT_NAME_CLEAN.toUpperCase()) && normalizedText.includes('CLOSED')) return 'CLOSED';
+            if (normalizedText.includes(DISTRICT_NAME_CLEAN.toUpperCase()) && normalizedText.includes('DELAY')) return 'DELAYED';
+            return 'OPEN';
+        }
+    },
+    { name: 'WOSU Public Media (Priority 6)', 
+      url: 'https://www.wosu.org/closings', 
+      scrape: async (url) => {
+          const response = await axios.get(url, { timeout: 8000 }); 
+          const normalizedText = cheerio.load(response.data)('body').text().toUpperCase();
+          if (normalizedText.includes(DISTRICT_NAME_CLEAN.toUpperCase()) && normalizedText.includes('CLOSED')) return 'CLOSED';
+          if (normalizedText.includes(DISTRICT_NAME_CLEAN.toUpperCase()) && normalizedText.includes('DELAY')) return 'DELAYED';
+          return 'OPEN';
+      }
+    },
+    { name: 'HometownStations (Priority 7)', 
+      url: 'https://www.hometownstations.com/community/delays_closings/', 
+      scrape: async (url) => {
+          const response = await axios.get(url, { timeout: 8000 }); 
+          const normalizedText = cheerio.load(response.data)('body').text().toUpperCase();
+          if (normalizedText.includes(DISTRICT_NAME_CLEAN.toUpperCase()) && normalizedText.includes('CLOSED')) return 'CLOSED';
+          if (normalizedText.includes(DISTRICT_NAME_CLEAN.toUpperCase()) && normalizedText.includes('DELAY')) return 'DELAYED';
+          return 'OPEN';
+      }
+    },
+    { name: 'SchoolStatus.io (Priority 8)', 
+      url: 'https://www.schoolstatus.io/delaware', 
+      scrape: async (url) => {
+          const response = await axios.get(url, { timeout: 8000 }); 
+          const normalizedText = cheerio.load(response.data)('body').text().toUpperCase();
+          if (normalizedText.includes(DISTRICT_NAME_CLEAN.toUpperCase()) && normalizedText.includes('CLOSED')) return 'CLOSED';
+          if (normalizedText.includes(DISTRICT_NAME_CLEAN.toUpperCase()) && normalizedText.includes('DELAY')) return 'DELAYED';
+          return 'OPEN';
+      }
+    },
+    { name: 'Columbus Parent (Priority 9)', 
+      url: 'https://www.columbusparent.com/school-closings', 
+      scrape: async (url) => {
+          const response = await axios.get(url, { timeout: 8000 }); 
+          const normalizedText = cheerio.load(response.data)('body').text().toUpperCase();
+          if (normalizedText.includes(DISTRICT_NAME_CLEAN.toUpperCase()) && normalizedText.includes('CLOSED')) return 'CLOSED';
+          if (normalizedText.includes(DISTRICT_NAME_CLEAN.toUpperCase()) && normalizedText.includes('DELAY')) return 'DELAYED';
+          return 'OPEN';
+      }
+    },
 ];
 
 app.use(cors());
@@ -115,7 +176,7 @@ app.get('/', (req, res) => {
 
 
 /**
- * Iterates through the 3 defined scrapers until one succeeds.
+ * Iterates through all 9 defined scrapers until one succeeds.
  */
 async function getSchoolStatus() {
     let finalStatus = 'NO REPORT / UNKNOWN';
@@ -134,7 +195,7 @@ async function getSchoolStatus() {
             if (status === 'OPEN' || status === 'CLOSED' || status === 'DELAYED') {
                 finalStatus = status;
                 sourceUsed = scraper.name;
-                successfulAttempts = attempts; // Record how many attempts it took (1, 2, or 3)
+                successfulAttempts = attempts; // Record how many attempts it took 
                 break; // Success! Stop and use this status.
             }
         } catch (error) {
