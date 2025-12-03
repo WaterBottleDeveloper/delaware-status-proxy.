@@ -6,8 +6,8 @@ const cors = require('cors');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const TIMEOUT_MS = 5000; // 5 seconds to let all sites load
-const DISTRICT_NAME_CLEAN = 'Delaware City';
+const TIMEOUT_MS = 5000; // 5 seconds per site
+const DISTRICT_NAME_CLEAN = 'Delaware City Schools';
 
 // Simple in-memory cache to avoid re-scraping constantly
 const CACHE_TTL_MS = 60_000; // 60 seconds
@@ -21,51 +21,62 @@ const checkTextForStatus = (text, districtName) => {
     const cleanText = text.toUpperCase();
     const cleanDistrict = districtName.toUpperCase();
 
-    // Check for keywords globally or near district name
-    if (cleanText.includes(cleanDistrict)) {
+    // Check for district mentions
+    if (
+        cleanText.includes(cleanDistrict) ||
+        cleanText.includes('DELAWARE CITY SCHOOLS') ||
+        cleanText.includes('DELAWARE CITY SCHOOL DISTRICT')
+    ) {
         if (cleanText.includes('CLOSED') || cleanText.includes('CLOSURE')) return 'CLOSED';
         if (
             cleanText.includes('DELAY') ||
+            cleanText.includes('DELAYED') ||
             cleanText.includes('TWO-HOUR') ||
             cleanText.includes('2-HOUR')
-        ) return 'DELAYED';
+        ) {
+            return 'DELAYED';
+        }
     }
+
     return 'OPEN';
 };
 
 // --- SOURCES ---
 const SCRAPERS = [
+    // 1) Delaware City Schools homepage (official source)
     {
-        name: 'Official District Homepage',
+        name: 'DCS Homepage',
         url: 'https://www.dcs.k12.oh.us/',
         scrape: async (url) => {
-            console.log('Scraping: Official District Homepage');
+            console.log('Scraping: DCS Homepage');
             const response = await axios.get(url, { timeout: TIMEOUT_MS });
             const $ = cheerio.load(response.data);
-            const bannerText = $('.alert, .notification, .banner, .announcement')
-                .text()
-                .toUpperCase();
 
-            if (bannerText.includes('CLOSED') || bannerText.includes('CLOSURE')) return 'CLOSED';
-            if (bannerText.includes('DELAY') || bannerText.includes('2-HOUR')) return 'DELAYED';
+            // Look for obvious alert/banner text
+            const bannerText = $('.alert, .notification, .banner, .announcement').text().toUpperCase();
+            const bodyText = $('body').text().toUpperCase();
+            const text = (bannerText || bodyText);
+
+            if (text.includes('CLOSED') || text.includes('CLOSURE')) return 'CLOSED';
+            if (
+                text.includes('DELAY') ||
+                text.includes('DELAYED') ||
+                text.includes('TWO-HOUR') ||
+                text.includes('2-HOUR')
+            ) {
+                return 'DELAYED';
+            }
+
             return 'OPEN';
         }
     },
+
+    // 2) WBNS 10TV
     {
-        name: 'WTVN Radio Closings',
-        url: 'https://610wtvn.iheart.com/featured/central-ohio-school-and-business-closings-and-delays/',
-        scrape: async (url) => {
-            console.log('Scraping: WTVN Radio Closings');
-            const response = await axios.get(url, { timeout: TIMEOUT_MS });
-            const bodyText = cheerio.load(response.data)('body').text();
-            return checkTextForStatus(bodyText, DISTRICT_NAME_CLEAN);
-        }
-    },
-    {
-        name: 'WBNS-TV / 10TV',
+        name: 'WBNS 10TV',
         url: 'https://www.10tv.com/closings',
         scrape: async (url) => {
-            console.log('Scraping: WBNS-TV / 10TV');
+            console.log('Scraping: WBNS 10TV Closings');
             const response = await axios.get(url, {
                 timeout: TIMEOUT_MS,
                 headers: { 'User-Agent': 'Mozilla/5.0' }
@@ -74,11 +85,13 @@ const SCRAPERS = [
             return checkTextForStatus(bodyText, DISTRICT_NAME_CLEAN);
         }
     },
+
+    // 3) NBC4 WCMH
     {
-        name: 'WCMH NBC 4',
+        name: 'NBC4 WCMH',
         url: 'https://www.nbc4i.com/weather/closings/',
         scrape: async (url) => {
-            console.log('Scraping: WCMH NBC 4');
+            console.log('Scraping: NBC4 WCMH Closings');
             const response = await axios.get(url, {
                 timeout: TIMEOUT_MS,
                 headers: { 'User-Agent': 'Mozilla/5.0' }
@@ -87,11 +100,13 @@ const SCRAPERS = [
             return checkTextForStatus(bodyText, DISTRICT_NAME_CLEAN);
         }
     },
+
+    // 4) WSYX ABC6
     {
-        name: 'WSYX ABC 6',
+        name: 'WSYX ABC6',
         url: 'https://abc6onyourside.com/weather/closings',
         scrape: async (url) => {
-            console.log('Scraping: WSYX ABC 6');
+            console.log('Scraping: WSYX ABC6 Closings');
             const response = await axios.get(url, {
                 timeout: TIMEOUT_MS,
                 headers: { 'User-Agent': 'Mozilla/5.0' }
@@ -100,44 +115,59 @@ const SCRAPERS = [
             return checkTextForStatus(bodyText, DISTRICT_NAME_CLEAN);
         }
     },
+
+    // 5) 610 WTVN
     {
-        name: 'WOSU Public Media',
-        url: 'https://www.wosu.org/closings',
+        name: '610 WTVN Radio',
+        url: 'https://610wtvn.iheart.com/featured/central-ohio-school-and-business-closings-and-delays/',
         scrape: async (url) => {
-            console.log('Scraping: WOSU Public Media');
+            console.log('Scraping: 610 WTVN Closings');
             const response = await axios.get(url, { timeout: TIMEOUT_MS });
             const bodyText = cheerio.load(response.data)('body').text();
             return checkTextForStatus(bodyText, DISTRICT_NAME_CLEAN);
         }
     },
+
+    // 6) Delaware Gazette (local paper)
     {
-        name: 'HometownStations',
-        url: 'https://www.hometownstations.com/community/delays_closings/',
+        name: 'Delaware Gazette',
+        url: 'https://www.delgazette.com',
         scrape: async (url) => {
-            console.log('Scraping: HometownStations');
+            console.log('Scraping: Delaware Gazette');
             const response = await axios.get(url, { timeout: TIMEOUT_MS });
             const bodyText = cheerio.load(response.data)('body').text();
             return checkTextForStatus(bodyText, DISTRICT_NAME_CLEAN);
         }
     },
+
+    // 7) SchoolClosings.org (Ohio aggregate)
     {
-        name: 'SchoolStatus.io',
-        url: 'https://www.schoolstatus.io/delaware',
+        name: 'SchoolClosings.org Ohio',
+        url: 'https://www.schoolclosings.org/ohio/',
         scrape: async (url) => {
-            console.log('Scraping: SchoolStatus.io');
+            console.log('Scraping: SchoolClosings.org Ohio');
             const response = await axios.get(url, { timeout: TIMEOUT_MS });
             const bodyText = cheerio.load(response.data)('body').text();
             return checkTextForStatus(bodyText, DISTRICT_NAME_CLEAN);
         }
     },
+
+    // 8) Delaware County Sheriff snow/ice emergency levels (heuristic)
     {
-        name: 'Columbus Parent',
-        url: 'https://www.columbusparent.com/school-closings',
+        name: 'Delaware County Snow/Ice Emergency Levels',
+        url: 'https://sheriff.co.delaware.oh.us/snow-ice-emergency-levels/',
         scrape: async (url) => {
-            console.log('Scraping: Columbus Parent');
+            console.log('Scraping: Delaware County Snow/Ice Emergency Levels');
             const response = await axios.get(url, { timeout: TIMEOUT_MS });
-            const bodyText = cheerio.load(response.data)('body').text();
-            return checkTextForStatus(bodyText, DISTRICT_NAME_CLEAN);
+            const text = cheerio.load(response.data)('body').text().toUpperCase();
+
+            // Heuristic:
+            // Level 3 => roads closed => treat schools as CLOSED
+            // Level 2 => hazardous => often delays => treat as DELAYED
+            if (text.includes('LEVEL 3')) return 'CLOSED';
+            if (text.includes('LEVEL 2')) return 'DELAYED';
+
+            return 'OPEN';
         }
     }
 ];
@@ -159,6 +189,7 @@ async function getSchoolStatus() {
 
     const results = await Promise.all(checkPromises);
 
+    // Priority 1: any explicit CLOSED
     const closedSource = results.find(r => r.status === 'CLOSED');
     if (closedSource) {
         return {
@@ -169,6 +200,7 @@ async function getSchoolStatus() {
         };
     }
 
+    // Priority 2: any explicit DELAYED
     const delayedSource = results.find(r => r.status === 'DELAYED');
     if (delayedSource) {
         return {
@@ -179,6 +211,7 @@ async function getSchoolStatus() {
         };
     }
 
+    // Fallback: if at least one source says OPEN, assume OPEN
     const successCount = results.filter(r => r.status === 'OPEN').length;
     if (successCount > 0) {
         return {
@@ -189,6 +222,7 @@ async function getSchoolStatus() {
         };
     }
 
+    // Total failure
     return {
         status: 'UNKNOWN',
         timestamp: new Date().toISOString(),
