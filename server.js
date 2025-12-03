@@ -11,27 +11,22 @@ const DISTRICT_NAME = 'Delaware City';
 
 app.use(cors());
 
+// Handles requests to the base URL
 app.get('/', (req, res) => {
     res.send('Delaware City School District Status Proxy is running. Access status via /status endpoint.');
 });
 
-/**
- * Fetches the HTML from the news site and parses the school closing status.
- * (Now includes User-Agent header to bypass 403 errors)
- * @returns {object} An object containing the status and timestamp.
- */
 async function getSchoolStatus() {
     try {
-        // *** 403 FIX IMPLEMENTED HERE ***
+        // *** CRITICAL: User-Agent header added to bypass 403 Forbidden error ***
         const response = await axios.get(NEWS_URL, {
             headers: {
-                // Pretends to be a Chrome browser on Windows
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36'
             }
         });
         
         const $ = cheerio.load(response.data);
-        const closingList = $('#closings-list'); // Confirmed selector from previous steps
+        const closingList = $('#closings-list'); // Confirmed selector
         let status = 'OPEN'; 
 
         closingList.find('.closing').each((index, element) => {
@@ -54,11 +49,11 @@ async function getSchoolStatus() {
         };
 
     } catch (error) {
-        console.error('Scraping Error:', error.message); // Log the specific error
+        console.error('Scraping Error:', error.message);
         return { 
             status: 'NO REPORT / UNKNOWN', 
             timestamp: new Date().toISOString(),
-            error: `Failed to fetch or parse source data. Error: ${error.message}` // Send error message back
+            error: `Failed to fetch or parse source data. Error: ${error.message}`
         };
     }
 }
