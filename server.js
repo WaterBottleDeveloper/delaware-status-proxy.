@@ -1,4 +1,4 @@
-// server.js (Node.js Proxy Code - Optimized 3-Source Failover System)
+// server.js (Node.js Proxy Code - Optimized 3-Source Failover System with Monitoring)
 const express = require('express');
 const axios = require('axios');
 const cheerio = require('cheerio');
@@ -22,14 +22,14 @@ let monitoringData = {
 // Define 3 highly stable scrapers in order of priority
 const SCRAPERS = [
     {
-        name: 'Official District Homepage (Priority 1) - ALERT BANNER CHECK',
+        name: 'Official District Homepage (Priority 1)',
         url: 'https://www.dcs.k12.oh.us/',
         // Targets specific alert banner CSS class or common keywords in banners
         scrape: async (url) => {
-            const response = await axios.get(url);
+            const response = await axios.get(url, { timeout: 8000 }); 
             const $ = cheerio.load(response.data);
             
-            // Check common alert CSS classes (e.g., .alert, .notification, .banner)
+            // Check common alert CSS classes
             const alertText = $('.alert, .notification, .banner, .announcement').text().toUpperCase();
             
             if (alertText.includes('CLOSED') || alertText.includes('CLOSURE')) return 'CLOSED';
@@ -43,7 +43,7 @@ const SCRAPERS = [
         url: 'https://www.dcs.k12.oh.us/for-families/school-hours-delay-schedule/school-delay-closings',
         // Targets specific delay page text
         scrape: async (url) => {
-            const response = await axios.get(url);
+            const response = await axios.get(url, { timeout: 8000 });
             const normalizedText = cheerio.load(response.data)('body').text().toUpperCase();
             if (normalizedText.includes('CLOSED') || normalizedText.includes('CLOSURE')) return 'CLOSED';
             if (normalizedText.includes('DELAY') || normalizedText.includes('TWO-HOUR') || normalizedText.includes('2-HOUR')) return 'DELAYED';
@@ -55,7 +55,7 @@ const SCRAPERS = [
         url: 'https://610wtvn.iheart.com/featured/central-ohio-school-and-business-closings-and-delays/',
         // Targets simple text list structure, searches for keywords near the district name
         scrape: async (url) => {
-            const response = await axios.get(url);
+            const response = await axios.get(url, { timeout: 8000 });
             const normalizedText = cheerio.load(response.data)('body').text().toUpperCase();
             const searchDistrict = normalizedText.includes(DISTRICT_NAME_CLEAN.toUpperCase());
             
@@ -68,7 +68,7 @@ const SCRAPERS = [
 
 app.use(cors());
 
-// Handles requests to the base URL
+// Monitoring Dashboard (The new / route)
 app.get('/', (req, res) => {
     res.setHeader('Content-Type', 'text/html');
     res.send(`
@@ -79,11 +79,12 @@ app.get('/', (req, res) => {
             <title>Proxy Monitoring Dashboard</title>
             <style>
                 body { font-family: sans-serif; background-color: #f4f7f6; color: #333; padding: 20px; }
-                .container { max-width: 800px; margin: 0 auto; background: #fff; padding: 30px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0 0 0 / 10%); }
+                .container { max-width: 800px; margin: 0 auto; background: #fff; padding: 30px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
                 h1 { color: #007bff; border-bottom: 2px solid #007bff; padding-bottom: 10px; margin-bottom: 20px; }
                 .status-badge { display: inline-block; padding: 5px 10px; border-radius: 5px; font-weight: bold; }
                 .status-ok { background-color: #28a745; color: white; }
                 .status-fail { background-color: #dc3545; color: white; }
+                pre { white-space: pre-wrap; word-wrap: break-word; }
             </style>
         </head>
         <body>
