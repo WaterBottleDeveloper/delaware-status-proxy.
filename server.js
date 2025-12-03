@@ -21,7 +21,6 @@ const checkTextForStatus = (text, districtName) => {
     const cleanText = text.toUpperCase();
     const cleanDistrict = districtName.toUpperCase();
 
-    // Check for district mentions
     if (
         cleanText.includes(cleanDistrict) ||
         cleanText.includes('DELAWARE CITY SCHOOLS') ||
@@ -33,29 +32,27 @@ const checkTextForStatus = (text, districtName) => {
             cleanText.includes('DELAYED') ||
             cleanText.includes('TWO-HOUR') ||
             cleanText.includes('2-HOUR')
-        ) {
-            return 'DELAYED';
-        }
+        ) return 'DELAYED';
     }
-
     return 'OPEN';
 };
 
-// --- SOURCES ---
+// --- SCRAPERS ---
+// role: 'official', 'media', or 'aggregate'
 const SCRAPERS = [
     // 1) Delaware City Schools homepage (official source)
     {
         name: 'DCS Homepage',
+        role: 'official',
         url: 'https://www.dcs.k12.oh.us/',
         scrape: async (url) => {
             console.log('Scraping: DCS Homepage');
             const response = await axios.get(url, { timeout: TIMEOUT_MS });
             const $ = cheerio.load(response.data);
 
-            // Look for obvious alert/banner text
             const bannerText = $('.alert, .notification, .banner, .announcement').text().toUpperCase();
             const bodyText = $('body').text().toUpperCase();
-            const text = (bannerText || bodyText);
+            const text = bannerText || bodyText;
 
             if (text.includes('CLOSED') || text.includes('CLOSURE')) return 'CLOSED';
             if (
@@ -63,9 +60,7 @@ const SCRAPERS = [
                 text.includes('DELAYED') ||
                 text.includes('TWO-HOUR') ||
                 text.includes('2-HOUR')
-            ) {
-                return 'DELAYED';
-            }
+            ) return 'DELAYED';
 
             return 'OPEN';
         }
@@ -74,9 +69,10 @@ const SCRAPERS = [
     // 2) WBNS 10TV
     {
         name: 'WBNS 10TV',
+        role: 'media',
         url: 'https://www.10tv.com/closings',
         scrape: async (url) => {
-            console.log('Scraping: WBNS 10TV Closings');
+            console.log('Scraping: WBNS 10TV');
             const response = await axios.get(url, {
                 timeout: TIMEOUT_MS,
                 headers: { 'User-Agent': 'Mozilla/5.0' }
@@ -89,9 +85,10 @@ const SCRAPERS = [
     // 3) NBC4 WCMH
     {
         name: 'NBC4 WCMH',
+        role: 'media',
         url: 'https://www.nbc4i.com/weather/closings/',
         scrape: async (url) => {
-            console.log('Scraping: NBC4 WCMH Closings');
+            console.log('Scraping: NBC4 WCMH');
             const response = await axios.get(url, {
                 timeout: TIMEOUT_MS,
                 headers: { 'User-Agent': 'Mozilla/5.0' }
@@ -104,9 +101,10 @@ const SCRAPERS = [
     // 4) WSYX ABC6
     {
         name: 'WSYX ABC6',
+        role: 'media',
         url: 'https://abc6onyourside.com/weather/closings',
         scrape: async (url) => {
-            console.log('Scraping: WSYX ABC6 Closings');
+            console.log('Scraping: WSYX ABC6');
             const response = await axios.get(url, {
                 timeout: TIMEOUT_MS,
                 headers: { 'User-Agent': 'Mozilla/5.0' }
@@ -116,21 +114,23 @@ const SCRAPERS = [
         }
     },
 
-    // 5) 610 WTVN
+    // 5) 610 WTVN Radio
     {
         name: '610 WTVN Radio',
+        role: 'media',
         url: 'https://610wtvn.iheart.com/featured/central-ohio-school-and-business-closings-and-delays/',
         scrape: async (url) => {
-            console.log('Scraping: 610 WTVN Closings');
+            console.log('Scraping: 610 WTVN');
             const response = await axios.get(url, { timeout: TIMEOUT_MS });
             const bodyText = cheerio.load(response.data)('body').text();
             return checkTextForStatus(bodyText, DISTRICT_NAME_CLEAN);
         }
     },
 
-    // 6) Delaware Gazette (local paper)
+    // 6) Delaware Gazette
     {
         name: 'Delaware Gazette',
+        role: 'media',
         url: 'https://www.delgazette.com',
         scrape: async (url) => {
             console.log('Scraping: Delaware Gazette');
@@ -140,9 +140,10 @@ const SCRAPERS = [
         }
     },
 
-    // 7) SchoolClosings.org (Ohio aggregate)
+    // 7) SchoolClosings.org
     {
         name: 'SchoolClosings.org Ohio',
+        role: 'aggregate',
         url: 'https://www.schoolclosings.org/ohio/',
         scrape: async (url) => {
             console.log('Scraping: SchoolClosings.org Ohio');
@@ -150,27 +151,79 @@ const SCRAPERS = [
             const bodyText = cheerio.load(response.data)('body').text();
             return checkTextForStatus(bodyText, DISTRICT_NAME_CLEAN);
         }
-    },
-
-    // 8) Delaware County Sheriff snow/ice emergency levels (heuristic)
-    {
-        name: 'Delaware County Snow/Ice Emergency Levels',
-        url: 'https://sheriff.co.delaware.oh.us/snow-ice-emergency-levels/',
-        scrape: async (url) => {
-            console.log('Scraping: Delaware County Snow/Ice Emergency Levels');
-            const response = await axios.get(url, { timeout: TIMEOUT_MS });
-            const text = cheerio.load(response.data)('body').text().toUpperCase();
-
-            // Heuristic:
-            // Level 3 => roads closed => treat schools as CLOSED
-            // Level 2 => hazardous => often delays => treat as DELAYED
-            if (text.includes('LEVEL 3')) return 'CLOSED';
-            if (text.includes('LEVEL 2')) return 'DELAYED';
-
-            return 'OPEN';
-        }
     }
 ];
+
+// --- DECISION / FALLBACK LOGIC ---
+function decideStatus(results) {
+    const nonError = results.filter(r =>
+        r.status === 'OPEN' || r.status === 'CLOSED' || r.status === 'DELAYED'
+    );
+
+    if (nonError.length === 0) {
+        return {
+            status: 'UNKNOWN',
+            source: 'No successful sources'
+        };
+    }
+
+    const openList = nonError.filter(r => r.status === 'OPEN');
+    const closedList = nonError.filter(r => r.status === 'CLOSED');
+    const delayedList = nonError.filter(r => r.status === 'DELAYED');
+
+    const openCount = openList.length;
+    const closedCount = closedList.length;
+    const delayedCount = delayedList.length;
+
+    // 1) OFFICIAL FIRST
+    const officialClosed = nonError.find(r => r.role === 'official' && r.status === 'CLOSED');
+    if (officialClosed) {
+        return { status: 'CLOSED', source: officialClosed.name };
+    }
+
+    const officialDelayed = nonError.find(r => r.role === 'official' && r.status === 'DELAYED');
+    if (officialDelayed) {
+        return { status: 'DELAYED', source: officialDelayed.name };
+    }
+
+    // 2) MEDIA CONSENSUS (2+ agreeing)
+    const mediaClosed = nonError.filter(
+        r => (r.role === 'media' || r.role === 'aggregate') && r.status === 'CLOSED'
+    );
+    if (mediaClosed.length >= 2) {
+        return { status: 'CLOSED', source: `Media consensus (${mediaClosed[0].name} etc.)` };
+    }
+
+    const mediaDelayed = nonError.filter(
+        r => (r.role === 'media' || r.role === 'aggregate') && r.status === 'DELAYED'
+    );
+    if (mediaDelayed.length >= 2) {
+        return { status: 'DELAYED', source: `Media consensus (${mediaDelayed[0].name} etc.)` };
+    }
+
+    // 3) MAJORITY FALLBACK
+    if (closedCount > openCount && closedCount >= delayedCount) {
+        return { status: 'CLOSED', source: closedList[0].name };
+    }
+
+    if (delayedCount > openCount && delayedCount > closedCount) {
+        return { status: 'DELAYED', source: delayedList[0].name };
+    }
+
+    // 4) If mostly OPEN or only OPENs
+    if (openCount > 0 && openCount >= closedCount + delayedCount) {
+        return {
+            status: 'OPEN',
+            source: `Consensus of ${openCount} sources`
+        };
+    }
+
+    // 5) Everything is a confusing tie → UNKNOWN
+    return {
+        status: 'UNKNOWN',
+        source: 'Conflicting results'
+    };
+}
 
 // --- CORE LOGIC: Parallel Execution ---
 async function getSchoolStatus() {
@@ -180,53 +233,20 @@ async function getSchoolStatus() {
         try {
             const status = await scraper.scrape(scraper.url);
             console.log(`Scraper "${scraper.name}" returned: ${status}`);
-            return { name: scraper.name, status };
+            return { name: scraper.name, role: scraper.role, status };
         } catch (error) {
             console.error(`Scraper "${scraper.name}" error:`, error.message);
-            return { name: scraper.name, status: 'ERROR', error: error.message };
+            return { name: scraper.name, role: scraper.role, status: 'ERROR', error: error.message };
         }
     });
 
     const results = await Promise.all(checkPromises);
+    const decision = decideStatus(results);
 
-    // Priority 1: any explicit CLOSED
-    const closedSource = results.find(r => r.status === 'CLOSED');
-    if (closedSource) {
-        return {
-            status: 'CLOSED',
-            timestamp: new Date().toISOString(),
-            source: closedSource.name,
-            results_summary: results
-        };
-    }
-
-    // Priority 2: any explicit DELAYED
-    const delayedSource = results.find(r => r.status === 'DELAYED');
-    if (delayedSource) {
-        return {
-            status: 'DELAYED',
-            timestamp: new Date().toISOString(),
-            source: delayedSource.name,
-            results_summary: results
-        };
-    }
-
-    // Fallback: if at least one source says OPEN, assume OPEN
-    const successCount = results.filter(r => r.status === 'OPEN').length;
-    if (successCount > 0) {
-        return {
-            status: 'OPEN',
-            timestamp: new Date().toISOString(),
-            source: `Consensus of ${successCount} sources`,
-            results_summary: results
-        };
-    }
-
-    // Total failure
     return {
-        status: 'UNKNOWN',
+        status: decision.status,
         timestamp: new Date().toISOString(),
-        error: 'All sources failed',
+        source: decision.source,
         results_summary: results
     };
 }
