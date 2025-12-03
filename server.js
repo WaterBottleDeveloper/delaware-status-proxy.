@@ -19,25 +19,22 @@ app.get('/', (req, res) => {
 
 async function getSchoolStatus() {
     try {
-        // Removing aggressive headers; simple fetch is preferred for non-blocking sites
+        // Simple fetch is used as public media sites rarely block User-Agents
         const response = await axios.get(NEWS_URL); 
         
         const $ = cheerio.load(response.data);
 
-        // *** NEW SELECTOR: Targeting the simple list structure on WOSU ***
-        // WOSU often uses a simple list or paragraph structure. Targeting common elements.
+        // Target the main article content on the WOSU page
         const closingText = $('article.content').text(); 
         let status = 'OPEN'; 
         
-        // Convert all content to uppercase for simple keyword matching
+        // Convert all content to uppercase for reliable keyword matching
         const normalizedText = closingText.toUpperCase();
         const normalizedDistrict = DISTRICT_NAME.toUpperCase();
 
         if (normalizedText.includes(normalizedDistrict)) {
-            // Find the index of the district name
+            // Check the text immediately following the district name for status keywords
             const districtIndex = normalizedText.indexOf(normalizedDistrict);
-            
-            // Look at the text immediately following the district name (e.g., within 50 characters)
             const context = normalizedText.substring(districtIndex, districtIndex + 50);
 
             if (context.includes('CLOSED')) {
@@ -54,7 +51,6 @@ async function getSchoolStatus() {
 
     } catch (error) {
         console.error('Scraping Error:', error.message);
-        // This is the true fail-safe if WOSU itself cannot be reached
         return { 
             status: 'NO REPORT / UNKNOWN', 
             timestamp: new Date().toISOString(),
