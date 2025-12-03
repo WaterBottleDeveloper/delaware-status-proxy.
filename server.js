@@ -6,7 +6,7 @@ const cors = require('cors');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const DISTRICT_NAME_CLEAN = 'Delaware City'; // Used for searching in backup sources
+const DISTRICT_NAME_CLEAN = 'Delaware City'; 
 
 // Define 3 highly stable scrapers in order of priority
 const SCRAPERS = [
@@ -68,7 +68,8 @@ async function getSchoolStatus() {
     for (const scraper of SCRAPERS) {
         try {
             console.log(`Attempting to scrape source: ${scraper.name}`);
-            const status = await scraper.scrape(scraper.url);
+            // Use a timeout of 10 seconds to prevent waiting forever on a dead connection
+            const status = await scraper.scrape(scraper.url); 
             
             // Check if the scraper returned a valid, decisive status
             if (status === 'OPEN' || status === 'CLOSED' || status === 'DELAYED') {
