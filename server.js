@@ -32,13 +32,14 @@ const checkTextForStatus = (text, districtName) => {
             cleanText.includes('DELAYED') ||
             cleanText.includes('TWO-HOUR') ||
             cleanText.includes('2-HOUR')
-        ) return 'DELAYED';
+        ) {
+            return 'DELAYED';
+        }
     }
     return 'OPEN';
 };
 
 // --- SCRAPERS ---
-// role: 'official', 'media', or 'aggregate'
 const SCRAPERS = [
     // 1) Delaware City Schools homepage (official source)
     {
@@ -60,7 +61,9 @@ const SCRAPERS = [
                 text.includes('DELAYED') ||
                 text.includes('TWO-HOUR') ||
                 text.includes('2-HOUR')
-            ) return 'DELAYED';
+            ) {
+                return 'DELAYED';
+            }
 
             return 'OPEN';
         }
@@ -154,8 +157,9 @@ const SCRAPERS = [
     }
 ];
 
-// --- DECISION / FALLBACK LOGIC ---
+// --- DECISION LOGIC: Equal votes for all sources ---
 function decideStatus(results) {
+    // Only look at successful statuses
     const nonError = results.filter(r =>
         r.status === 'OPEN' || r.status === 'CLOSED' || r.status === 'DELAYED'
     );
@@ -175,50 +179,33 @@ function decideStatus(results) {
     const closedCount = closedList.length;
     const delayedCount = delayedList.length;
 
-    // 1) OFFICIAL FIRST
-    const officialClosed = nonError.find(r => r.role === 'official' && r.status === 'CLOSED');
-    if (officialClosed) {
-        return { status: 'CLOSED', source: officialClosed.name };
-    }
+    console.log(`Vote counts -> OPEN: ${openCount}, CLOSED: ${closedCount}, DELAYED: ${delayedCount}`);
 
-    const officialDelayed = nonError.find(r => r.role === 'official' && r.status === 'DELAYED');
-    if (officialDelayed) {
-        return { status: 'DELAYED', source: officialDelayed.name };
-    }
-
-    // 2) MEDIA CONSENSUS (2+ agreeing)
-    const mediaClosed = nonError.filter(
-        r => (r.role === 'media' || r.role === 'aggregate') && r.status === 'CLOSED'
-    );
-    if (mediaClosed.length >= 2) {
-        return { status: 'CLOSED', source: `Media consensus (${mediaClosed[0].name} etc.)` };
-    }
-
-    const mediaDelayed = nonError.filter(
-        r => (r.role === 'media' || r.role === 'aggregate') && r.status === 'DELAYED'
-    );
-    if (mediaDelayed.length >= 2) {
-        return { status: 'DELAYED', source: `Media consensus (${mediaDelayed[0].name} etc.)` };
-    }
-
-    // 3) MAJORITY FALLBACK
-    if (closedCount > openCount && closedCount >= delayedCount) {
-        return { status: 'CLOSED', source: closedList[0].name };
-    }
-
-    if (delayedCount > openCount && delayedCount > closedCount) {
-        return { status: 'DELAYED', source: delayedList[0].name };
-    }
-
-    // 4) If mostly OPEN or only OPENs
-    if (openCount > 0 && openCount >= closedCount + delayedCount) {
+    // 1) Majority CLOSED
+    if (closedCount > openCount && closedCount >= delayedCount && closedCount > 0) {
         return {
-            status: 'OPEN',
-            source: `Consensus of ${openCount} sources`
+            status: 'CLOSED',
+            source: `${closedList[0].name} (majority of ${closedCount} sources)`
         };
     }
 
-    // 5) Everything is a confusing tie → UNKNOWN
+    // 2) Majority DELAYED
+    if (delayedCount > openCount && delayedCount > closedCount && delayedCount > 0) {
+        return {
+            status: 'DELAYED',
+            source: `${delayedList[0].name} (majority of ${delayedCount} sources)`
+        };
+    }
+
+    // 3) Otherwise, if there is at least one OPEN, treat as OPEN
+    if (openCount > 0) {
+        return {
+            status: 'OPEN',
+            source: `Consensus / plurality of ${openCount} sources`
+        };
+    }
+
+    // 4) Fallback: confusing situation
     return {
         status: 'UNKNOWN',
         source: 'Conflicting results'
