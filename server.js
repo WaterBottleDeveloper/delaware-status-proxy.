@@ -11,17 +11,21 @@ const DISTRICT_NAME = 'Delaware City';
 
 app.use(cors());
 
-// Handles requests to the base URL
 app.get('/', (req, res) => {
     res.send('Delaware City School District Status Proxy is running. Access status via /status endpoint.');
 });
 
 async function getSchoolStatus() {
     try {
-        // *** CRITICAL: User-Agent header added to bypass 403 Forbidden error ***
+        // *** FINAL ATTEMPT FIX: Multiple headers added to bypass strict 403 blocks ***
         const response = await axios.get(NEWS_URL, {
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36'
+                // Standard browser User-Agent
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36',
+                // Mimics direct navigation to the page
+                'Referer': NEWS_URL, 
+                // Tells the server we accept standard browser content
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8'
             }
         });
         
@@ -53,7 +57,10 @@ async function getSchoolStatus() {
         return { 
             status: 'NO REPORT / UNKNOWN', 
             timestamp: new Date().toISOString(),
-            error: `Failed to fetch or parse source data. Error: ${error.message}`
+            // Log a custom message if the failure is specifically a 403
+            error: error.response && error.response.status === 403 
+                ? 'Failed due to 403 block. The news site is preventing scraping.' 
+                : `Failed to fetch or parse source data. Error: ${error.message}`
         };
     }
 }
