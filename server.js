@@ -1,4 +1,4 @@
-// server.js (Node.js Proxy Code - NEW SOURCE: WSYX ABC 6 / FOX 28)
+// server.js (Node.js Proxy Code - FINAL SOURCE: WOSU Public Media)
 const express = require('express');
 const axios = require('axios');
 const cheerio = require('cheerio');
@@ -6,10 +6,10 @@ const cors = require('cors');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-// *** NEW SOURCE URL ***
-const NEWS_URL = 'https://abc6onyourside.com/weather/closings'; 
-// The name of the district as it appears on the WSYX site
-const DISTRICT_NAME = 'Delaware City Schools'; 
+// *** FINAL SOURCE URL: WOSU Public Media (low anti-bot risk) ***
+const NEWS_URL = 'https://radio.wosu.org/public-safety/closings'; 
+// The name of the district as it appears on the WOSU site
+const DISTRICT_NAME = 'Delaware City'; 
 
 app.use(cors());
 
@@ -19,45 +19,34 @@ app.get('/', (req, res) => {
 
 async function getSchoolStatus() {
     try {
-        // Keeping strong headers to bypass any potential blocks
-        const response = await axios.get(NEWS_URL, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36',
-                'Referer': NEWS_URL, 
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8'
-            }
-        });
+        // Removing aggressive headers; simple fetch is preferred for non-blocking sites
+        const response = await axios.get(NEWS_URL); 
         
         const $ = cheerio.load(response.data);
 
-        // *** NEW SELECTOR: Targeting the known list structure on the WSYX page ***
-        // This selector targets a common structure used by this network.
-        const closingList = $('.school-closing-item'); 
+        // *** NEW SELECTOR: Targeting the simple list structure on WOSU ***
+        // WOSU often uses a simple list or paragraph structure. Targeting common elements.
+        const closingText = $('article.content').text(); 
         let status = 'OPEN'; 
-        let found = false;
-
-        closingList.each((index, element) => {
-            const text = $(element).text().trim();
-            
-            if (text.includes(DISTRICT_NAME)) {
-                found = true;
-                // The status is often the very next element or inside the same item
-                if (text.includes('CLOSED') || text.includes('Closing')) {
-                    status = 'CLOSED';
-                    return false; 
-                } else if (text.includes('DELAY') || text.includes('Delayed') || text.includes('2-Hour')) {
-                    status = 'DELAYED';
-                    return false; 
-                }
-            }
-        });
         
-        // If the district wasn't explicitly listed (it only appears when closed/delayed)
-        if (!found) {
-             // We return OPEN because if they aren't on the list, they are open.
-             return { status: 'OPEN', timestamp: new Date().toISOString() };
-        }
+        // Convert all content to uppercase for simple keyword matching
+        const normalizedText = closingText.toUpperCase();
+        const normalizedDistrict = DISTRICT_NAME.toUpperCase();
 
+        if (normalizedText.includes(normalizedDistrict)) {
+            // Find the index of the district name
+            const districtIndex = normalizedText.indexOf(normalizedDistrict);
+            
+            // Look at the text immediately following the district name (e.g., within 50 characters)
+            const context = normalizedText.substring(districtIndex, districtIndex + 50);
+
+            if (context.includes('CLOSED')) {
+                status = 'CLOSED';
+            } else if (context.includes('DELAY') || context.includes('2-HOUR')) {
+                status = 'DELAYED';
+            }
+        }
+        
         return { 
             status: status, 
             timestamp: new Date().toISOString() 
@@ -65,11 +54,11 @@ async function getSchoolStatus() {
 
     } catch (error) {
         console.error('Scraping Error:', error.message);
-        // This error now means the WSYX site failed, which is a rare, critical failure
+        // This is the true fail-safe if WOSU itself cannot be reached
         return { 
             status: 'NO REPORT / UNKNOWN', 
             timestamp: new Date().toISOString(),
-            error: `Source failed. Error: ${error.message}`
+            error: `Critical failure reaching source. Error: ${error.message}`
         };
     }
 }
